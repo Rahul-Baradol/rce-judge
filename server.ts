@@ -7,6 +7,7 @@ import connectDB from "./middleware/connectdb";
 import profile from './models/profile';
 import systemData from './models/systemData';
 import submissionSchema from './models/submission';
+import judgerNodeModel from './models/judgerNode';
 
 const jsonwebtoken = require('jsonwebtoken')
 
@@ -43,6 +44,10 @@ app.get('/', (req: Request, res: Response) => {
 })
 
 io.on('connection', async (socket: Socket) => {
+   socket.on('health', (message: any) => {
+      socket.emit('health', "alive");
+   })
+
    socket.on('submissionStatus', async (submissionId: any) => {
       try {
          const dbSubmission = await submissionSchema.findOne({
@@ -61,8 +66,8 @@ io.on('connection', async (socket: Socket) => {
                submissionId: submissionId,
                submissionStatus: "NA"
             }
-            socket.emit('submissionStatus', result);           
-         }
+            socket.emit('submissionStatus', result);            
+         }    
       } catch (error) {
          console.log("Error occurred in RCE-JUDGE");
          console.log(error);
@@ -81,22 +86,49 @@ io.on('connection', async (socket: Socket) => {
             socket.emit('submitCode', "Profile doesn't exist.");
             return;
          }
-
-         if (sentUserDetails.sessionKey !== dbUserDetails.sessionKey) {
+         
+         if (sentUserDetails.loginTime !== dbUserDetails.loginTime) {
             socket.emit('submitCode', "Session expired.")
             return;
          }
 
          const submissionId = dbSystemData.nextSubmissionId;
+         const problemTitle = sentData.problemTitle;
+
+         const nodeData: any = await judgerNodeModel.aggregate([
+            {
+               $match: {
+                  title: `${problemTitle}`
+               }
+            },
+
+            {
+               $limit: 1
+            }
+         ])
+
+         const programInput = nodeData[0].input;
+         const programExpectedOutput = nodeData[0].output;
+         const programDriverHead = nodeData[0].driverHead;
+         const programDriverMain = nodeData[0].driverMain;
+         const programTimeLimit_sec = nodeData[0].timeLimit_sec;
+         const programMemoryLimit_kb = nodeData[0].memoryLimit_kb;
 
          const date = new Date();
 
          const judgeData = {
             userEmail: sentUserDetails.email,
-            problemId: 1,
+            problemTitle: problemTitle,
             submissionId: submissionId,
             code: sentData.code ? sentData.code : "",
-            time: date
+            lang: "cpp",
+            input: programInput,
+            expectedOutput: programExpectedOutput,
+            driverHead: programDriverHead,
+            driverMain: programDriverMain,
+            timeLimit_sec: programTimeLimit_sec,
+            memoryLimit_kb: programMemoryLimit_kb,
+            time: date.toISOString()
          }
          
          await producer.send({
@@ -126,9 +158,9 @@ io.on('connection', async (socket: Socket) => {
 
 server.listen(PORT, async () => {
    try {
-      console.log(`Judge Server is running on port ${PORT}`);
       await connectDB();
       await producer.connect();
+      console.log(`Judge Server is running on port ${PORT}`);
    } catch (error)  {
       console.log("Error starting the server.");
       console.log(error);
