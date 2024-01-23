@@ -24,6 +24,8 @@ const kafka = new Kafka({
 });   
 
 const producer = kafka.producer();
+// const { Partitioners } = require('kafkajs')
+// const producer = kafka.producer({ createPartitioner: Partitioners.LegacyPartitioner });
 
 const io = new SocketIOServer(server, {
    cors: {
@@ -109,10 +111,17 @@ io.on('connection', async (socket: Socket) => {
 
          const programInput = nodeData[0].input;
          const programExpectedOutput = nodeData[0].output;
-         const programDriverHead = nodeData[0].driverHead;
-         const programDriverMain = nodeData[0].driverMain;
-         const programTimeLimit_sec = nodeData[0].timeLimit_sec;
-         const programMemoryLimit_kb = nodeData[0].memoryLimit_kb;
+
+         const drivers = nodeData[0].drivers;
+         
+         const programDriverHead = drivers[sentData.lang]["driverHead"];
+         const programDriverMain = drivers[sentData.lang]["driverMain"];
+
+         const timeLimit_sec = nodeData[0].timeLimit_sec;
+         const programTimeLimit_sec = timeLimit_sec[sentData.lang];
+
+         const memoryLimit_kb = nodeData[0].memoryLimit_kb;
+         const programMemoryLimit_kb = memoryLimit_kb[sentData.lang];
 
          const date = new Date();
 
@@ -121,7 +130,6 @@ io.on('connection', async (socket: Socket) => {
             problemTitle: problemTitle,
             submissionId: submissionId,
             code: sentData.code ? sentData.code : "",
-            lang: "cpp",
             input: programInput,
             expectedOutput: programExpectedOutput,
             driverHead: programDriverHead,
@@ -131,12 +139,13 @@ io.on('connection', async (socket: Socket) => {
             time: date.toISOString()
          }
          
+         console.log(sentData.lang);
+
          await producer.send({
-            "topic": `Submission`,
+            "topic": `${sentData.lang}`,
             "messages": [
                {
                   "value": JSON.stringify(judgeData),
-                  "partition": sentData.lang
                }
             ]
          })
@@ -147,6 +156,7 @@ io.on('connection', async (socket: Socket) => {
          });
       } catch (error) {
          socket.emit('submitCode', "FORB");
+         console.log(error);
       }
    });
 
